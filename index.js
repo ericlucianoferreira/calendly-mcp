@@ -90,11 +90,21 @@ function addMinutes(isoStr, minutes) {
   return new Date(new Date(isoStr).getTime() + minutes * 60_000).toISOString();
 }
 
+// Garante formato internacional +55 para o Calendly pré-selecionar Brasil.
+// Sem o +55, o campo phone assume US (+1) e falha na validação.
+function normalizeBrPhone(phone) {
+  if (!phone) return phone;
+  const digits = phone.replace(/\D/g, '');
+  if (phone.startsWith('+')) return phone; // já tem código de país
+  if (digits.startsWith('55') && digits.length >= 12) return `+${digits}`;
+  return `+55${digits}`;
+}
+
 function buildPrefillUrl(schedulingUrl, { name, email, phone, company, notes }) {
   const url = new URL(schedulingUrl);
   if (name) url.searchParams.set('name', name);
   if (email) url.searchParams.set('email', email);
-  if (phone) url.searchParams.set('a1', phone);
+  if (phone) url.searchParams.set('a1', normalizeBrPhone(phone));
   if (company) url.searchParams.set('a2', company);
   if (notes) url.searchParams.set('a3', notes);
   return url.toString();
