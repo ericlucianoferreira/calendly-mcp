@@ -116,9 +116,44 @@ function buildPrefillUrl(schedulingUrl, { name, email, phone, company, notes }) 
 
 const TOOLS = [
   {
+    name: 'calendly_create_one_off_link',
+    description:
+      'Cria um link de agendamento personalizado e single-use com nome, duração e restrição de datas customizados. O convidado escolhe entre os horários disponíveis de Eric dentro do intervalo de datas definido. Use quando quiser oferecer um link com título ou duração diferentes do padrão, ou restringir a data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Nome/título da reunião (ex: "Diagnóstico — João Silva | Empresa XYZ")',
+        },
+        duration_minutes: {
+          type: 'number',
+          description: 'Duração em minutos. Valores aceitos: 15, 30, 60, 90.',
+        },
+        start_date: {
+          type: 'string',
+          description: 'Data de início do período disponível (YYYY-MM-DD)',
+        },
+        end_date: {
+          type: 'string',
+          description: 'Data de fim do período disponível (YYYY-MM-DD). Igual ao start_date para restringir a um único dia.',
+        },
+        location_label: {
+          type: 'string',
+          description: 'Texto do local (ex: "Zoom — link enviado na confirmação"). Padrão: "Zoom — link enviado após confirmação."',
+        },
+        max_uses: {
+          type: 'number',
+          description: 'Máximo de usos do link. Padrão: 1 (single-use).',
+        },
+      },
+      required: ['name', 'duration_minutes', 'start_date', 'end_date'],
+    },
+  },
+  {
     name: 'calendly_create_scheduling_link',
     description:
-      'Cria um link de agendamento único (single-use) para um tipo de evento. O convidado escolhe o próprio horário disponível. Após um agendamento, o link expira automaticamente. Ideal para disparar via WhatsApp ou e-mail para leads.',
+      'Cria um link de agendamento único (single-use) para um tipo de evento existente. O convidado escolhe o próprio horário disponível. Após um agendamento, o link expira automaticamente. Ideal para disparar via WhatsApp ou e-mail para leads.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -231,6 +266,82 @@ const TOOLS = [
 // ──────────────────────────────────────────────
 // Handlers
 // ──────────────────────────────────────────────
+
+async function handleCreateOneOffLink({
+  name,
+  duration_minutes,
+  start_date,
+  end_date,
+  location_label = 'Zoom — link enviado após confirmação.',
+  max_uses = 1,
+}) {
+  const userUri = getUserUri();
+
+  // Validação: Calendly só aceita 15, 30, 60, 90 (não aceita 45 nem outros)
+  const validDurations = [15, 30, 60, 90];
+  if (!validDurations.includes(duration_minutes)) {
+    throw new Error(
+      `Duração ${duration_minutes}min não é suportada pela Calendly API. Use: ${validDurations.join(', ')}.`
+    );
+  }
+
+  // Cria o one_off_event_type com configurações customizadas
+  const eventType = await apiPost('/one_off_event_types', {
+    name,
+    host: userUri,
+    duration: duration_minutes,
+    timezone: 'America/Sao_Paulo',
+    date_setting: {
+      type: 'date_range',
+      start_date,
+      end_date,
+    },
+    location: {
+      kind: 'custom',
+      location: location_label,
+    },
+  });
+
+  const eventTypeUri = eventType.resource?.uri;
+  if (!eventTypeUri) {
+    throw new Error(`Falha ao criar one_off_event_type: ${JSON.stringify(eventType)}`);
+  }
+
+  // Cria scheduling_link single-use a partir do one_off_event_type
+  const link = await apiPost('/scheduling_links', {
+    max_event_count: max_uses,
+    owner: eventTypeUri,
+    owner_type: 'EventType',
+  });
+
+  const bookingUrl = link.resource?.booking_url;
+
+  // Busca os slots disponíveis no período para informar ao agente
+  const startUtc = new Date(`${start_date}T00:00:00-03:00`).toISOString();
+  const endUtc = new Date(`${end_date}T23:59:59-03:00`).toISOString();
+  const params = new URLSearchParams({ event_type: eventTypeUri, start_time: startUtc, end_time: endUtc });
+  const slotsData = await apiGet(`/event_type_available_times?${params}`);
+  const slots = (slotsData.collection || []).map((s) => ({
+    start_time_utc: s.start_time,
+    start_time_brt: new Date(s.start_time).toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }),
+    status: s.status,
+  }));
+
+  return {
+    booking_url: bookingUrl,
+    max_uses,
+    event_name: name,
+    duration_minutes,
+    date_range: { start_date, end_date },
+    available_slots: slots,
+    slots_count: slots.length,
+    instructions: `Link single-use gerado. ${slots.length} horários disponíveis no período. Após ${max_uses} agendamento(s), o link expira.`,
+  };
+}
 
 async function handleCreateSchedulingLink({ event_type_uri, max_uses = 1 }) {
   const data = await apiPost('/scheduling_links', {
@@ -490,6 +601,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     let result;
     switch (name) {
+      case 'calendly_create_one_off_link':
+        result = await handleCreateOneOffLink(args);
+        break;
       case 'calendly_create_scheduling_link':
         result = await handleCreateSchedulingLink(args);
         break;
