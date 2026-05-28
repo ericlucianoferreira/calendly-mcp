@@ -106,6 +106,25 @@ function buildPrefillUrl(schedulingUrl, { name, email, phone, company, notes }) 
 
 const TOOLS = [
   {
+    name: 'calendly_create_scheduling_link',
+    description:
+      'Cria um link de agendamento único (single-use) para um tipo de evento. O convidado escolhe o próprio horário disponível. Após um agendamento, o link expira automaticamente. Ideal para disparar via WhatsApp ou e-mail para leads.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        event_type_uri: {
+          type: 'string',
+          description: 'URI do tipo de evento (obtida via calendly_list_event_types)',
+        },
+        max_uses: {
+          type: 'number',
+          description: 'Número máximo de usos antes de expirar. Padrão: 1 (single-use).',
+        },
+      },
+      required: ['event_type_uri'],
+    },
+  },
+  {
     name: 'calendly_list_event_types',
     description:
       'Lista os tipos de evento ativos no Calendly (diagnóstico, apresentação, etc.) com URI, slug, duração e URL pública de agendamento.',
@@ -202,6 +221,23 @@ const TOOLS = [
 // ──────────────────────────────────────────────
 // Handlers
 // ──────────────────────────────────────────────
+
+async function handleCreateSchedulingLink({ event_type_uri, max_uses = 1 }) {
+  const data = await apiPost('/scheduling_links', {
+    max_event_count: max_uses,
+    owner: event_type_uri,
+    owner_type: 'EventType',
+  });
+
+  const link = data.resource;
+  return {
+    booking_url: link.booking_url,
+    max_event_count: link.max_event_count,
+    owner_uri: link.owner,
+    expires_at: link.expires_at || null,
+    instructions: `Envie este link ao convidado via WhatsApp ou e-mail. Após ${max_uses} agendamento(s) o link expira automaticamente.`,
+  };
+}
 
 async function handleListEventTypes() {
   const userUri = getUserUri();
@@ -444,6 +480,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     let result;
     switch (name) {
+      case 'calendly_create_scheduling_link':
+        result = await handleCreateSchedulingLink(args);
+        break;
       case 'calendly_list_event_types':
         result = await handleListEventTypes();
         break;
