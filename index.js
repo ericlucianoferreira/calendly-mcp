@@ -90,6 +90,23 @@ function addMinutes(isoStr, minutes) {
   return new Date(new Date(isoStr).getTime() + minutes * 60_000).toISOString();
 }
 
+// A API de available_times rejeita com 400 start_time no passado e janela > 7 dias.
+// Clampa: início nunca antes de agora (+1min de folga); fim no máximo início + 7 dias.
+// Retorna null se a janela ficar vazia após o ajuste (end_date já passou).
+function clampAvailabilityWindow(start_date, end_date) {
+  let startMs = new Date(`${start_date}T00:00:00-03:00`).getTime();
+  let endMs = new Date(`${end_date}T23:59:59-03:00`).getTime();
+  const nowMs = Date.now() + 60_000;
+  if (startMs < nowMs) startMs = nowMs;
+  const capMs = startMs + 7 * 24 * 60 * 60 * 1000 - 1000;
+  if (endMs > capMs) endMs = capMs;
+  if (endMs <= startMs) return null;
+  return {
+    startUtc: new Date(startMs).toISOString(),
+    endUtc: new Date(endMs).toISOString(),
+  };
+}
+
 // Garante formato internacional +55 para o Calendly pré-selecionar Brasil.
 // Sem o +55, o campo phone assume US (+1) e falha na validação.
 function normalizeBrPhone(phone) {
@@ -317,10 +334,16 @@ async function handleCreateOneOffLink({
   const bookingUrl = link.resource?.booking_url;
 
   // Busca os slots disponíveis no período para informar ao agente
-  const startUtc = new Date(`${start_date}T00:00:00-03:00`).toISOString();
-  const endUtc = new Date(`${end_date}T23:59:59-03:00`).toISOString();
-  const params = new URLSearchParams({ event_type: eventTypeUri, start_time: startUtc, end_time: endUtc });
-  const slotsData = await apiGet(`/event_type_available_times?${params}`);
+  const window = clampAvailabilityWindow(start_date, end_date);
+  const slotsData = window
+    ? await apiGet(
+        `/event_type_available_times?${new URLSearchParams({
+          event_type: eventTypeUri,
+          start_time: window.startUtc,
+          end_time: window.endUtc,
+        })}`
+      )
+    : { collection: [] };
   const slots = (slotsData.collection || []).map((s) => ({
     start_time_utc: s.start_time,
     start_time_brt: new Date(s.start_time).toLocaleString('pt-BR', {
@@ -386,15 +409,16 @@ async function handleListEventTypes() {
 }
 
 async function handleListAvailableSlots({ event_type_uri, start_date, end_date }) {
-  // Converte datas BRT → início e fim do dia em UTC
-  // BRT = UTC-3, então meia-noite BRT = 03:00 UTC
-  const startUtc = toUtc(`${start_date}T00:00:00-03:00`);
-  const endUtc = toUtc(`${end_date}T23:59:59-03:00`);
+  // Converte datas BRT (meia-noite BRT = 03:00 UTC) já clampadas pros limites da API
+  const window = clampAvailabilityWindow(start_date, end_date);
+  if (!window) {
+    return { slots: [], count: 0, note: 'Janela vazia após ajuste: end_date já passou.' };
+  }
 
   const params = new URLSearchParams({
     event_type: event_type_uri,
-    start_time: startUtc,
-    end_time: endUtc,
+    start_time: window.startUtc,
+    end_time: window.endUtc,
   });
 
   const data = await apiGet(`/event_type_available_times?${params}`);
