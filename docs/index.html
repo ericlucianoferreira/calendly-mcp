@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calendly MCP — como funciona</title>
+<meta name="description" content="Como o Calendly MCP funciona: um servidor MCP que liga o Claude à API v2 do Calendly para agendar, cancelar e gerar links de agendamento por conversa.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%85%3C/text%3E%3C/svg%3E">
+
+<style>
+  /* Tokens oficiais Expert Integrado (referência canônica: expert-brain/docs/index.html) */
+  :root{
+    --bg: #0b0f14;
+    --bg-raised: #10161d;
+    --bg-card: #131a22;
+    --line: #212b36;
+    --line-soft: #1a232c;
+    --ink: #e7edf3;
+    --ink-dim: #a7b3bf;
+    --ink-faint: #6b7885;
+    --accent: #6ee7c4;
+    --accent-dim: #3fae8c;
+    --accent-2: #7aa2ff;
+    --accent-2-dim: #4f6bc4;
+    --warn: #f2b866;
+    --radius: 14px;
+    --maxw: 1080px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  *{ box-sizing: border-box; }
+  html{ scroll-behavior: smooth; }
+
+  body{
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    background-image:
+      radial-gradient(1200px 600px at 15% -10%, rgba(110,231,196,.08), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(122,162,255,.07), transparent 55%);
+    background-repeat: no-repeat;
+  }
+
+  ::selection{ background: rgba(110,231,196,.28); color: #fff; }
+
+  a{ color: var(--accent); text-decoration: none; }
+  a:hover{ text-decoration: underline; }
+
+  .wrap{ max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  section{ padding: 88px 0; border-top: 1px solid var(--line-soft); }
+
+  .eyebrow{
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700;
+    margin: 0 0 14px;
+  }
+  .eyebrow::before{ content:""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(110,231,196,.15); }
+
+  h1, h2, h3, h4{ font-weight: 750; letter-spacing: -.02em; margin: 0; }
+  h2{ font-size: clamp(1.7rem, 3vw, 2.35rem); color: var(--ink); }
+  .section-sub{ color: var(--ink-dim); max-width: 640px; margin: 14px 0 0; font-size: 1.05rem; }
+  .section-head{ margin-bottom: 44px; }
+
+  code, .mono{ font-family: var(--mono); }
+  code{
+    background: rgba(110,231,196,.1);
+    color: var(--accent);
+    padding: .12em .42em;
+    border-radius: 5px;
+    font-size: .88em;
+    border: 1px solid rgba(110,231,196,.18);
+  }
+
+  /* ---------- NAV ---------- */
+  .topnav{
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(10px);
+    background: rgba(11,15,20,.72);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .topnav .wrap{ display: flex; align-items: center; justify-content: space-between; height: 60px; }
+  .brand{ display: flex; align-items: center; gap: 10px; font-weight: 800; color: var(--ink); font-size: 1rem; }
+  .brand-mark{ width: 26px; height: 26px; flex: none; }
+  .navlinks{ display: flex; gap: 22px; font-size: .92rem; }
+  .navlinks a{ color: var(--ink-dim); }
+  .navlinks a:hover{ color: var(--ink); text-decoration: none; }
+  @media (max-width: 700px){ .navlinks{ display: none; } }
+
+  /* ---------- HERO ---------- */
+  .hero{ padding: 96px 0 84px; border-top: none; position: relative; overflow: hidden; }
+  .hero::after{
+    content:"";
+    position: absolute; inset: auto -20% -60% -20%;
+    height: 420px;
+    background: radial-gradient(closest-side, rgba(122,162,255,.10), transparent 70%);
+    pointer-events: none;
+  }
+  .hero-grid{ display: grid; grid-template-columns: 1.15fr .85fr; gap: 48px; align-items: center; position: relative; }
+  @media (max-width: 880px){ .hero-grid{ grid-template-columns: 1fr; } }
+
+  .official-badge{
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: .8rem; font-weight: 650;
+    color: var(--accent);
+    background: rgba(110,231,196,.09);
+    border: 1px solid rgba(110,231,196,.3);
+    border-radius: 999px;
+    padding: 6px 14px;
+    margin-bottom: 18px;
+  }
+  .official-badge svg{ flex: none; }
+
+  .hero h1{
+    font-size: clamp(2.5rem, 5.4vw, 4rem);
+    line-height: 1.04;
+    background: linear-gradient(180deg, #fff, #c9d6e2 65%, var(--ink-dim));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero .tagline{
+    margin: 20px 0 0;
+    font-size: clamp(1.05rem, 1.7vw, 1.22rem);
+    color: var(--ink-dim);
+    max-width: 52ch;
+  }
+  .hero .tagline strong{ color: var(--ink); font-weight: 650; }
+
+  .cta-row{ display: flex; gap: 14px; flex-wrap: wrap; margin-top: 32px; }
+  .btn{
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 13px 22px; border-radius: 10px; font-weight: 650; font-size: .96rem;
+    border: 1px solid transparent;
+    transition: transform .15s ease, border-color .15s ease, background .15s ease;
+  }
+  .btn:hover{ text-decoration: none; transform: translateY(-1px); }
+  .btn-primary{ background: var(--accent); color: #06110d; }
+  .btn-primary:hover{ background: #7fefce; }
+  .btn-ghost{ background: transparent; color: var(--ink); border-color: var(--line); }
+  .btn-ghost:hover{ border-color: var(--accent-dim); color: var(--accent); }
+
+  .hero-badges{ display: flex; gap: 10px; flex-wrap: wrap; margin-top: 26px; }
+  .badge{
+    font-size: .78rem; color: var(--ink-dim); border: 1px solid var(--line);
+    padding: 5px 11px; border-radius: 999px; font-family: var(--mono);
+  }
+
+  .orb-panel{
+    background: linear-gradient(160deg, var(--bg-raised), var(--bg-card));
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 30px 60px -30px rgba(0,0,0,.6);
+  }
+  .orb-panel svg{ display: block; width: 100%; height: auto; }
+
+  /* ---------- DIAGRAMA ---------- */
+  .diagram-wrap{
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 24px;
+    overflow-x: auto;
+  }
+  .diagram-wrap svg{ display: block; margin: 0 auto; min-width: 720px; width: 100%; height: auto; }
+
+  /* Etapas numeradas */
+  .flow{ display: flex; flex-direction: column; gap: 14px; margin-top: 28px; }
+  .step{
+    display: flex; gap: 16px;
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 20px 22px;
+    transition: border-color .18s ease;
+  }
+  .step:hover{ border-color: var(--accent-dim); }
+  .step-n{
+    flex: none; width: 36px; height: 36px; border-radius: 50%;
+    background: var(--bg-raised); border: 1px solid var(--accent-dim); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: .92rem; font-weight: 700;
+  }
+  .step h3{ font-size: 1.02rem; margin-bottom: 5px; }
+  .step p{ color: var(--ink-dim); font-size: .95rem; margin: 0; }
+
+  /* ---------- TOOLS ---------- */
+  .grid{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .card{
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 22px;
+    transition: border-color .18s ease, transform .18s ease;
+  }
+  .card:hover{ border-color: var(--accent-dim); transform: translateY(-3px); }
+  .tool-name{
+    display: inline-block;
+    font-family: var(--mono); font-size: .82rem; color: var(--accent);
+    background: rgba(110,231,196,.08); border: 1px solid rgba(110,231,196,.2);
+    border-radius: 7px; padding: 4px 9px; margin-bottom: 12px;
+    word-break: break-word;
+  }
+  .card p{ color: var(--ink-dim); font-size: .92rem; margin: 0; }
+  .card p b{ color: var(--ink); font-weight: 650; }
+
+  /* ---------- INSTALAÇÃO ---------- */
+  .install-panel{
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 34px;
+    background: linear-gradient(160deg, var(--bg-raised), var(--bg-card));
+  }
+  .install-panel h3{ font-size: 1.35rem; margin-bottom: 12px; }
+  .install-panel > p{ color: var(--ink-dim); max-width: 62ch; margin: 0 0 26px; font-size: 1rem; }
+  .install-panel > p strong{ color: var(--ink); font-weight: 650; }
+
+  .mini-steps{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 28px; }
+  @media (max-width: 900px){ .mini-steps{ grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 520px){ .mini-steps{ grid-template-columns: 1fr; } }
+  .mini-step{
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px;
+  }
+  .mini-step .n{
+    font-family: var(--mono); font-size: .8rem; color: var(--accent-2);
+    display: block; margin-bottom: 8px;
+  }
+  .mini-step h4{ font-size: .93rem; margin-bottom: 5px; color: var(--ink); }
+  .mini-step p{ margin: 0; color: var(--ink-dim); font-size: .84rem; }
+
+  .prereqs{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+
+  .browser-note{
+    display: flex; gap: 12px; align-items: flex-start;
+    background: rgba(242,184,102,.06);
+    border: 1px solid rgba(242,184,102,.25);
+    border-radius: 12px; padding: 14px 16px;
+    margin-top: 22px;
+  }
+  .browser-note svg{ flex: none; margin-top: 2px; }
+  .browser-note p{ margin: 0; color: var(--ink-dim); font-size: .88rem; }
+  .browser-note p b{ color: var(--warn); font-weight: 650; }
+
+  /* ---------- STACK ---------- */
+  .pills{ display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 34px; }
+  .pill{
+    padding: 6px 13px; border-radius: 999px;
+    font-family: var(--mono); font-size: .82rem;
+    background: var(--bg-raised); border: 1px solid var(--line); color: var(--ink-dim);
+  }
+
+  .detail-grid{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .detail{
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px;
+  }
+  .detail h4{ font-size: .95rem; margin-bottom: 6px; color: var(--ink); }
+  .detail p{ margin: 0; color: var(--ink-dim); font-size: .87rem; }
+
+  /* ---------- FOOTER ---------- */
+  footer{ padding: 56px 0 72px; border-top: 1px solid var(--line-soft); }
+  .footer-grid{ display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px; }
+  .footer-note{ color: var(--ink-faint); font-size: .88rem; }
+  .footer-note a{ color: var(--ink-dim); }
+  .footer-note a:hover{ color: var(--accent); }
+  .footer-links{ display: flex; gap: 18px; font-size: .88rem; flex-wrap: wrap; }
+
+  /* ---------- REVEAL ---------- */
+  .reveal{ opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in{ opacity: 1; transform: none; }
+
+  @media (prefers-reduced-motion: reduce){
+    html{ scroll-behavior: auto; }
+    .reveal{ transition: none; opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="wrap">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <rect x="4" y="6" width="24" height="22" rx="4" stroke="#6ee7c4" stroke-width="1.6"/>
+        <path d="M4 13h24" stroke="#6ee7c4" stroke-width="1.6"/>
+        <path d="M10 3v6M22 3v6" stroke="#7aa2ff" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M11 20.5l3.2 3.2L21 17" stroke="#6ee7c4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Calendly MCP
+    </div>
+    <div class="navlinks">
+      <a href="#como-funciona">Como funciona</a>
+      <a href="#tools">Tools</a>
+      <a href="#instalacao">Instalação</a>
+      <a href="#stack">Stack</a>
+      <a href="https://github.com/ericlucianoferreira/calendly-mcp">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero wrap">
+  <div class="hero-grid">
+    <div>
+      <span class="official-badge">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 2l2.5 2.1 3.2-.4 1.2 3 3 1.2-.4 3.2L23.6 13l-2.1 2.5.4 3.2-3 1.2-1.2 3-3.2-.4L12 24l-2.5-2.1-3.2.4-1.2-3-3-1.2.4-3.2L.4 13l2.1-2.5-.4-3.2 3-1.2 1.2-3 3.2.4L12 2z" fill="rgba(110,231,196,.18)"/>
+          <path d="M8.5 12.2l2.4 2.4 4.6-4.8" stroke="#6ee7c4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Servidor MCP oficial da Expert Integrado
+      </span>
+      <h1>Calendly MCP</h1>
+      <p class="tagline">
+        Um servidor MCP que liga o Claude à sua agenda: ele <strong>consulta horários, agenda,
+        cancela e gera links de agendamento</strong> direto na API v2 do Calendly —
+        por conversa, sem abrir o formulário público.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/ericlucianoferreira/calendly-mcp#readme">Instalar com um prompt</a>
+        <a class="btn btn-ghost" href="https://github.com/ericlucianoferreira/calendly-mcp">Ver o código no GitHub</a>
+      </div>
+      <div class="hero-badges">
+        <span class="badge">7 tools</span>
+        <span class="badge">Node.js 18+</span>
+        <span class="badge">1 variável de ambiente</span>
+        <span class="badge">Calendly API v2</span>
+      </div>
+    </div>
+    <div class="orb-panel" data-reveal>
+      <svg viewBox="0 0 360 320" role="img" aria-label="Ilustração: uma conversa no Claude vira uma reunião marcada no calendário">
+        <defs>
+          <radialGradient id="glow" cx="50%" cy="45%" r="60%">
+            <stop offset="0%" stop-color="#6ee7c4" stop-opacity=".28"/>
+            <stop offset="100%" stop-color="#6ee7c4" stop-opacity="0"/>
+          </radialGradient>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#4a5a6a"/>
+          </marker>
+        </defs>
+        <circle cx="180" cy="150" r="140" fill="url(#glow)"/>
+
+        <!-- balão de conversa -->
+        <g>
+          <rect x="28" y="34" width="150" height="58" rx="12" fill="#10161d" stroke="#2a3846"/>
+          <path d="M52 92 l-8 14 20 -14 z" fill="#10161d" stroke="#2a3846"/>
+          <rect x="42" y="50" width="98" height="7" rx="3.5" fill="#3a4756"/>
+          <rect x="42" y="66" width="122" height="7" rx="3.5" fill="#6ee7c4" opacity=".85"/>
+        </g>
+        <text x="42" y="128" fill="#6b7885" font-size="11" font-family="ui-monospace, Menlo, Consolas, monospace">"agenda pra quinta, 10h"</text>
+
+        <!-- seta conversa -> calendário -->
+        <path d="M120 140 C 150 175, 165 190, 185 205" fill="none" stroke="#4a5a6a" stroke-width="1.6" marker-end="url(#arr)"/>
+
+        <!-- calendário -->
+        <g>
+          <rect x="180" y="150" width="152" height="136" rx="14" fill="#131a22" stroke="#6ee7c4" stroke-opacity=".55"/>
+          <path d="M180 186h152" stroke="#2a3846" stroke-width="1.4"/>
+          <path d="M206 140v16M256 140v16M306 140v16" stroke="#7aa2ff" stroke-width="2.4" stroke-linecap="round"/>
+          <!-- grade de dias -->
+          <g fill="#1c2733">
+            <rect x="196" y="200" width="24" height="20" rx="5"/>
+            <rect x="228" y="200" width="24" height="20" rx="5"/>
+            <rect x="260" y="200" width="24" height="20" rx="5"/>
+            <rect x="292" y="200" width="24" height="20" rx="5"/>
+            <rect x="196" y="228" width="24" height="20" rx="5"/>
+            <rect x="292" y="228" width="24" height="20" rx="5"/>
+            <rect x="196" y="256" width="24" height="20" rx="5"/>
+            <rect x="228" y="256" width="24" height="20" rx="5"/>
+            <rect x="260" y="256" width="24" height="20" rx="5"/>
+            <rect x="292" y="256" width="24" height="20" rx="5"/>
+          </g>
+          <!-- slot confirmado -->
+          <rect x="228" y="228" width="56" height="20" rx="5" fill="#6ee7c4"/>
+          <path d="M244 238l5 5 9-9" stroke="#06110d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </g>
+
+        <!-- nós MCP -->
+        <g>
+          <circle cx="282" cy="64" r="17" fill="#10161d" stroke="#7aa2ff"/>
+          <text x="282" y="69" text-anchor="middle" fill="#7aa2ff" font-size="10.5" font-weight="700" font-family="ui-monospace, Menlo, Consolas, monospace">MCP</text>
+          <path d="M282 82 C 282 110, 275 125, 262 148" fill="none" stroke="#4a5a6a" stroke-width="1.6" marker-end="url(#arr)"/>
+          <path d="M178 74 L 263 66" fill="none" stroke="#4a5a6a" stroke-width="1.6" marker-end="url(#arr)"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+</header>
+
+<section id="como-funciona" class="wrap">
+  <div class="section-head" data-reveal>
+    <div class="eyebrow">01 · Como funciona</div>
+    <h2>Do pedido em português à reunião na agenda</h2>
+    <p class="section-sub">Quatro etapas, todas existentes no código: o Claude interpreta, o servidor MCP traduz, a API v2 do Calendly executa e o resultado volta verificável.</p>
+  </div>
+
+  <div class="diagram-wrap" data-reveal>
+    <svg viewBox="0 0 940 200" role="img" aria-label="Fluxo: você pede no Claude, o Calendly MCP traduz a intenção em chamadas, a API v2 do Calendly executa, e a reunião é agendada ou o link é gerado">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4a5a6a"/>
+        </marker>
+      </defs>
+
+      <!-- números -->
+      <g font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13" font-weight="700">
+        <circle cx="115" cy="32" r="14" fill="#10161d" stroke="#3fae8c"/>
+        <text x="115" y="37" text-anchor="middle" fill="#6ee7c4">1</text>
+        <line x1="115" y1="46" x2="115" y2="66" stroke="#2a3846" stroke-width="1.4"/>
+
+        <circle cx="355" cy="32" r="14" fill="#10161d" stroke="#3fae8c"/>
+        <text x="355" y="37" text-anchor="middle" fill="#6ee7c4">2</text>
+        <line x1="355" y1="46" x2="355" y2="66" stroke="#2a3846" stroke-width="1.4"/>
+
+        <circle cx="595" cy="32" r="14" fill="#10161d" stroke="#3fae8c"/>
+        <text x="595" y="37" text-anchor="middle" fill="#6ee7c4">3</text>
+        <line x1="595" y1="46" x2="595" y2="66" stroke="#2a3846" stroke-width="1.4"/>
+
+        <circle cx="835" cy="32" r="14" fill="#10161d" stroke="#3fae8c"/>
+        <text x="835" y="37" text-anchor="middle" fill="#6ee7c4">4</text>
+        <line x1="835" y1="46" x2="835" y2="66" stroke="#2a3846" stroke-width="1.4"/>
+      </g>
+
+      <!-- caixa 1: usuário no Claude -->
+      <g>
+        <rect x="15" y="66" width="200" height="76" rx="12" fill="#131a22" stroke="#2a3846"/>
+        <text x="115" y="99" text-anchor="middle" fill="#e7edf3" font-size="14.5" font-weight="700" font-family="inherit">Você pede no Claude</text>
+        <text x="115" y="120" text-anchor="middle" fill="#a7b3bf" font-size="11.5" font-family="inherit">em linguagem natural</text>
+      </g>
+
+      <line x1="215" y1="104" x2="252" y2="104" stroke="#4a5a6a" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+      <!-- caixa 2: MCP -->
+      <g>
+        <rect x="255" y="66" width="200" height="76" rx="12" fill="#131a22" stroke="#6ee7c4"/>
+        <text x="355" y="99" text-anchor="middle" fill="#6ee7c4" font-size="14.5" font-weight="700" font-family="inherit">Calendly MCP</text>
+        <text x="355" y="120" text-anchor="middle" fill="#a7b3bf" font-size="11.5" font-family="inherit">este servidor · 7 tools</text>
+      </g>
+
+      <line x1="455" y1="104" x2="492" y2="104" stroke="#4a5a6a" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+      <!-- caixa 3: API -->
+      <g>
+        <rect x="495" y="66" width="200" height="76" rx="12" fill="#131a22" stroke="#7aa2ff"/>
+        <text x="595" y="99" text-anchor="middle" fill="#7aa2ff" font-size="14.5" font-weight="700" font-family="inherit">API Calendly v2</text>
+        <text x="595" y="120" text-anchor="middle" fill="#a7b3bf" font-size="11.5" font-family="inherit" font-style="normal">autenticada pelo seu token</text>
+      </g>
+
+      <line x1="695" y1="104" x2="732" y2="104" stroke="#4a5a6a" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+      <!-- caixa 4: resultado -->
+      <g>
+        <rect x="735" y="66" width="200" height="76" rx="12" fill="#131a22" stroke="#f2b866"/>
+        <text x="835" y="99" text-anchor="middle" fill="#f2b866" font-size="14.5" font-weight="700" font-family="inherit">Reunião agendada</text>
+        <text x="835" y="120" text-anchor="middle" fill="#a7b3bf" font-size="11.5" font-family="inherit">ou link de agendamento</text>
+      </g>
+
+      <!-- rótulo de retorno -->
+      <path d="M835 142 C 835 172, 500 178, 130 172 C 122 172, 118 168, 118 160 L 118 150" fill="none" stroke="#2a3846" stroke-width="1.3" stroke-dasharray="4 5" marker-end="url(#arrow)"/>
+      <text x="478" y="192" text-anchor="middle" fill="#6b7885" font-size="11" font-family="inherit">confirmação volta pra conversa: horário, convidado e link da reunião</text>
+    </svg>
+  </div>
+
+  <div class="flow">
+    <div class="step" data-reveal>
+      <div class="step-n">1</div>
+      <div>
+        <h3>Você pede em linguagem natural</h3>
+        <p>"Agenda um diagnóstico com o convidado na quinta às 10h", "me dá um link de 30 minutos pra semana que vem", "cancela a reunião de amanhã". O Claude entende a intenção e escolhe a tool certa deste servidor.</p>
+      </div>
+    </div>
+    <div class="step" data-reveal>
+      <div class="step-n">2</div>
+      <div>
+        <h3>O MCP traduz o pedido em chamadas</h3>
+        <p>O servidor descobre o tipo de evento (<code>calendly_list_event_types</code>), confere os horários livres (<code>calendly_list_available_slots</code>) e monta a requisição: converte o horário de Brasília pra UTC, normaliza o telefone pro formato +55 e preenche as perguntas do formulário (WhatsApp, empresa, observações).</p>
+      </div>
+    </div>
+    <div class="step" data-reveal>
+      <div class="step-n">3</div>
+      <div>
+        <h3>A API v2 do Calendly executa</h3>
+        <p>Autenticado pelo seu Personal Access Token, o agendamento vai direto pela Scheduling API (<code>POST /invitees</code>). Links single-use nascem de <code>POST /scheduling_links</code>; reuniões avulsas, de <code>POST /one_off_event_types</code>. A janela de disponibilidade é ajustada automaticamente aos limites da API (máx. 7 dias, nunca no passado).</p>
+      </div>
+    </div>
+    <div class="step" data-reveal>
+      <div class="step-n">4</div>
+      <div>
+        <h3>Resultado verificável, com plano B</h3>
+        <p>A reunião aparece confirmada na agenda — e <code>calendly_get_event</code> devolve status, link Zoom e dados do convidado. Se a API recusar o agendamento direto, o servidor devolve uma <b>URL pré-preenchida</b> com todos os dados: abra ou envie ao convidado e confirme em um clique. Nada se perde no caminho.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="tools" class="wrap">
+  <div class="section-head" data-reveal>
+    <div class="eyebrow">02 · As 7 tools</div>
+    <h2>Uma ferramenta por operação, direto do código</h2>
+    <p class="section-sub">Cada card abaixo é uma tool real registrada no servidor — nomes exatos, comportamento exato.</p>
+  </div>
+  <div class="grid" data-reveal>
+    <div class="card">
+      <span class="tool-name">calendly_list_event_types</span>
+      <p>Lista os tipos de evento ativos da conta, com URI, slug, duração, URL pública de agendamento e as perguntas do formulário de cada um.</p>
+    </div>
+    <div class="card">
+      <span class="tool-name">calendly_list_available_slots</span>
+      <p>Horários livres de um tipo de evento num intervalo de datas (máx. 7 dias por chamada), devolvidos em UTC <b>e</b> em horário de Brasília.</p>
+    </div>
+    <div class="card">
+      <span class="tool-name">calendly_schedule</span>
+      <p>Agenda a reunião pra um convidado via Scheduling API, preenchendo nome, e-mail, WhatsApp, empresa e observações. Se a API recusar, devolve URL pré-preenchida pra confirmar em um clique.</p>
+    </div>
+    <div class="card">
+      <span class="tool-name">calendly_cancel</span>
+      <p>Cancela um evento agendado pelo UUID, com o motivo registrado no Calendly.</p>
+    </div>
+    <div class="card">
+      <span class="tool-name">calendly_get_event</span>
+      <p>Detalhes completos de um evento: status, horários, local (incluindo link Zoom) e convidados — com links de cancelamento e reagendamento de cada um.</p>
+    </div>
+    <div class="card">
+      <span class="tool-name">calendly_create_scheduling_link</span>
+      <p>Gera um link de agendamento <b>single-use</b> pra um tipo de evento existente: o convidado escolhe o próprio horário e o link expira após o uso. Ideal pra enviar por WhatsApp ou e-mail.</p>
+    </div>
+    <div class="card">
+      <span class="tool-name">calendly_create_one_off_link</span>
+      <p>Cria uma reunião avulsa com nome, duração (15/30/60/90 min) e intervalo de datas customizados — e devolve o link single-use já com os horários disponíveis do período.</p>
+    </div>
+  </div>
+</section>
+
+<section id="instalacao" class="wrap">
+  <div class="section-head" data-reveal>
+    <div class="eyebrow">03 · Instalação guiada</div>
+    <h2>Um prompt, e o Claude conduz o resto</h2>
+  </div>
+
+  <div class="install-panel" data-reveal>
+    <h3>Cole um prompt no Claude Code — ele faz o setup por você</h3>
+    <p>
+      O README traz um prompt pronto: o Claude <strong>verifica os pré-requisitos, instala, registra o servidor
+      e conduz até a parte chata</strong> — gerar o seu Personal Access Token no Calendly — navegando pelo browser
+      por você. Você só faz o login; o token vai direto pra configuração local, nunca pro chat.
+    </p>
+
+    <div class="mini-steps">
+      <div class="mini-step">
+        <span class="n">Passo 1</span>
+        <h4>Cole o prompt</h4>
+        <p>Copie o bloco do README e cole numa sessão do Claude Code.</p>
+      </div>
+      <div class="mini-step">
+        <span class="n">Passo 2</span>
+        <h4>Ele prepara tudo</h4>
+        <p>Confere Node.js 18+, clona o repositório e instala as dependências.</p>
+      </div>
+      <div class="mini-step">
+        <span class="n">Passo 3</span>
+        <h4>Etapa de navegador</h4>
+        <p>O Claude abre o Calendly, você loga, e ele gera e captura o token da tela.</p>
+      </div>
+      <div class="mini-step">
+        <span class="n">Passo 4</span>
+        <h4>Validação real</h4>
+        <p>Registro no Claude Code + chamada real à API antes de declarar pronto.</p>
+      </div>
+    </div>
+
+    <div class="cta-row" style="margin-top:0">
+      <a class="btn btn-primary" href="https://github.com/ericlucianoferreira/calendly-mcp#readme">Abrir o guia no README</a>
+    </div>
+
+    <div class="prereqs">
+      <span class="pill">Claude Code</span>
+      <span class="pill">Node.js 18+</span>
+      <span class="pill">Conta Calendly Standard ou superior</span>
+    </div>
+
+    <div class="browser-note">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="4" y="7" width="16" height="12" rx="2.5" stroke="#f2b866" stroke-width="1.6"/>
+        <path d="M9 7V6a3 3 0 0 1 6 0v1" stroke="#f2b866" stroke-width="1.6" stroke-linecap="round"/>
+        <circle cx="12" cy="13" r="1.6" fill="#f2b866"/>
+      </svg>
+      <p><b>O login é sempre seu.</b> O Claude nunca pede senha nem código no chat: ele abre a página, espera você entrar na sua conta e só então navega pra gerar o token. O valor fica na configuração local da sua máquina.</p>
+    </div>
+  </div>
+</section>
+
+<section id="stack" class="wrap">
+  <div class="section-head" data-reveal>
+    <div class="eyebrow">04 · Stack</div>
+    <h2>Pequeno de propósito</h2>
+    <p class="section-sub">Um arquivo, uma dependência, uma variável de ambiente — fácil de auditar, fácil de manter.</p>
+  </div>
+
+  <div class="pills" data-reveal>
+    <span class="pill">Node.js 18+</span>
+    <span class="pill">@modelcontextprotocol/sdk</span>
+    <span class="pill">transporte stdio</span>
+    <span class="pill">Calendly API v2</span>
+    <span class="pill">licença MIT</span>
+  </div>
+
+  <div class="detail-grid" data-reveal>
+    <div class="detail">
+      <h4>Um arquivo, uma variável</h4>
+      <p>Todo o servidor mora no <code>index.js</code>. A única configuração é a env var <code>CALENDLY_TOKEN</code>, com o seu Personal Access Token.</p>
+    </div>
+    <div class="detail">
+      <h4>Fuso sob controle</h4>
+      <p>Você fala em horário de Brasília, a API recebe UTC e a resposta volta nos dois formatos — sem reunião marcada 3 horas fora do lugar.</p>
+    </div>
+    <div class="detail">
+      <h4>Sem escopo extra</h4>
+      <p>O identificador do usuário é extraído do próprio token, sem chamar <code>/users/me</code> — um escopo a menos pra conceder.</p>
+    </div>
+    <div class="detail">
+      <h4>Telefone brasileiro</h4>
+      <p>Número sem código de país ganha <code>+55</code> automaticamente. Sem isso, o Calendly assume EUA e recusa a validação do formulário.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap footer-grid">
+    <div class="footer-note">
+      Feito pela <a href="https://expertintegrado.com.br">Expert Integrado</a> — IA aplicada a negócios.
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/ericlucianoferreira/calendly-mcp">Código no GitHub</a>
+      <a href="https://github.com/ericlucianoferreira/calendly-mcp#readme">README</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var els = document.querySelectorAll('[data-reveal]');
+  if (!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+    return; // sem JS moderno ou com movimento reduzido: tudo visível por padrão
+  }
+  els.forEach(function(el){ el.classList.add('reveal'); });
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+  els.forEach(function(el){ io.observe(el); });
+  // Seguro: nada permanece oculto (print, leitores, observers que não disparam)
+  setTimeout(function(){
+    els.forEach(function(el){ el.classList.add('in'); });
+    io.disconnect();
+  }, 2200);
+})();
+</script>
+
+</body>
+</html>
