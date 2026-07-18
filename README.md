@@ -4,6 +4,8 @@ MCP server para integração com Calendly API v2. Permite que qualquer instânci
 
 **[→ Como funciona o Calendly MCP](https://ericlucianoferreira.github.io/calendly-mcp/)** — a página do projeto, com o sistema explicado visualmente.
 
+Open source, criado por **Eric Luciano** na **Mentoria Automações Inteligentes** (Expert Integrado).
+
 ## Tools disponíveis
 
 | Tool | Descrição |
